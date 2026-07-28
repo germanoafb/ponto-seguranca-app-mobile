@@ -5,7 +5,7 @@ import { Camera, RotateCcw  } from 'lucide-react-native';
 import { getCurrentLocation } from '../lib/geolocation';
 
 import * as ImageManipulator from 'expo-image-manipulator';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import ViewShot from 'react-native-view-shot';
 
 export type CaptureMetadata = {
@@ -42,7 +42,7 @@ async function compressToTarget(uri: string): Promise<string> {
       { compress: quality, format: ImageManipulator.SaveFormat.JPEG }
     );
 
-    const info = await FileSystem.getInfoAsync(manipulated.uri, { size: true });
+    const info = await FileSystem.getInfoAsync(manipulated.uri);
     const size = info.exists && 'size' in info ? info.size : Infinity;
 
     if (size <= SAFE_TARGET_BYTES) {

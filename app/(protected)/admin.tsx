@@ -15,7 +15,7 @@ const TIPO_LABEL: Record<PontoTipo, string> = {
   , saida          : 'Saída'
 };
 
-const ROLES = ['seguranca', 'bombeiro_civil', 'admin'];
+const ROLES = ['Segurança', 'Bombeiro Civil', 'Admin'];
 
 function toIsoDate(value: string): string | null {
   if (!value.trim()) return null;
