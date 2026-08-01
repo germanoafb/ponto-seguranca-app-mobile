@@ -3,6 +3,7 @@ import { Eye, EyeOff, Lock, Mail, ShieldCheck } from 'lucide-react-native';
 import { useState } from 'react';
 import { router   } from 'expo-router';
 import { supabase } from '../../lib/supabase';
+import { mapAuthErrorToPtBr } from '../../lib/authErrors';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -29,7 +30,7 @@ export default function LoginScreen() {
     setLoading(false);
 
     if (authError || !data.session) {
-      setError(mapErrorToPtBr(authError?.message));
+      setError(mapAuthErrorToPtBr(authError?.message));
       return;
     }
 
@@ -129,6 +130,12 @@ export default function LoginScreen() {
             )}
           </Pressable>
 
+          <Pressable onPress={() => router.push('/cadastro')} className="mt-4 items-center">
+            <Text className="text-sm text-slate-600">
+              Não tem conta? <Text className="font-medium text-blue-600">Criar conta</Text>
+            </Text>
+          </Pressable>
+
           <Text className="mt-6 text-center text-xs text-slate-400">
             © 2026 Folha de Ponto Titãs. Todos os direitos reservados.
           </Text>
@@ -138,21 +145,3 @@ export default function LoginScreen() {
   );
 }
 
-function mapErrorToPtBr(message?: string): string {
-  const msg = (message || '').toLowerCase();
-
-  if (msg.includes('invalid login credentials')) {
-    return 'Email ou senha inválidos.';
-  }
-  if (msg.includes('email not confirmed')) {
-    return 'Email ainda não confirmado.';
-  }
-  if (msg.includes('project is paused') || msg.includes('project is currently paused')) {
-    return 'Projeto Supabase pausado. Contate o administrador.';
-  }
-  if (msg.includes('network') || msg.includes('fetch')) {
-    return 'Não foi possível conectar. Verifique sua internet.';
-  }
-
-  return message || 'Erro ao fazer login. Tente novamente.';
-}

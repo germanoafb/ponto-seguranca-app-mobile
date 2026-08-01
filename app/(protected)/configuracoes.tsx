@@ -4,15 +4,7 @@ import { useEffect, useState } from 'react';
 import { router              } from 'expo-router';
 import { supabase            } from '../../lib/supabase';
 import { useSession          } from '../../hooks/useSession';
-
-function isPasswordStrong(password: string): boolean {
-  return (
-    password.length >= 6 &&
-    /[A-Z]/.test(password) &&
-    /[a-z]/.test(password) &&
-    /[!@#$%^&*()_+\-=[\]{};:'",.<>?/\\|`~]/.test(password)
-  );
-}
+import { isPasswordStrong    } from '../../lib/validation';
 
 export default function ConfiguracoesScreen() {
   const { session } = useSession();

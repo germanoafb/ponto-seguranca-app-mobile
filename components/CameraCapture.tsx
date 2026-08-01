@@ -119,6 +119,14 @@ export default function CameraCapture({ selfieUri, onChange, onMetadataChange }:
     if (!pendingCapture || !viewShotRef.current?.capture) return;
 
     try {
+      // Espera dois frames antes de capturar: no Android, o onLoad da <Image>
+      // dispara assim que os bytes terminam de decodificar, mas o bitmap ainda
+      // pode não ter sido efetivamente pintado na view nesse exato instante
+      // (mesmo com fadeDuration=0). Sem essa espera o ViewShot às vezes captura
+      // a foto ainda preta/em branco, enquanto a barra de texto (que não
+      // depende de decodificação de imagem) já aparece certinha.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+
       const stampedUri = await viewShotRef.current.capture();
       const finalUri = await compressToTarget(stampedUri);
 
@@ -206,11 +214,15 @@ export default function CameraCapture({ selfieUri, onChange, onMetadataChange }:
         {!!error && <Text className="mt-2 text-xs text-red-600">{error}</Text>}
       </View>
 
-      {/* View "invisível" usada só para gerar a imagem com o carimbo */}
+      {/* View fora da tela usada só para gerar a imagem com o carimbo.
+          Importante: opacity 0 faz o ViewShot capturar uma imagem preta/escura
+          em alguns dispositivos (a view não chega a ser desenhada de verdade).
+          Por isso ela fica com opacidade normal, só deslocada para fora da tela. */}
       {pendingCapture && (
-        <View style={{ position: 'absolute', top: -9999, left: -9999 }}>
+        <View style={{ position: 'absolute', top: -9999, left: -9999 }} pointerEvents="none">
           <ViewShot ref={viewShotRef} options={{ format: 'jpg', quality: 0.9 }}>
             <View
+              collapsable={false}
               style={{
                 width: OVERLAY_WIDTH,
                 height: OVERLAY_WIDTH * pendingCapture.aspect,
@@ -219,6 +231,7 @@ export default function CameraCapture({ selfieUri, onChange, onMetadataChange }:
               <Image
                 source={{ uri: pendingCapture.photoUri }}
                 onLoad={handleOverlayReady}
+                fadeDuration={0}
                 style={{ width: '100%', height: '100%' }}
                 resizeMode="cover"
               />

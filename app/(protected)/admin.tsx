@@ -2,9 +2,10 @@ import { ActivityIndicator, Linking, Pressable, ScrollView, Switch, Text, TextIn
 import { listCadastros, updateCadastroActive, updateCadastroRole } from '../../lib/cadastros';
 import { listRelatorio, type RelatorioFiltros } from '../../lib/relatorios';
 import { useEffect, useState  } from 'react';
-import { Download, Search     } from 'lucide-react-native';
+import { Download, FileSpreadsheet, Search } from 'lucide-react-native';
 import { exportarRelatorioCsv } from '../../lib/csvExport';
 import { formatDateTimeBr     } from '../../lib/datetime';
+import { gerarPlanilhaPonto, isMesAnoValido, type Funcao } from '../../lib/planilhaExport';
 import type { PontoRegistro, PontoTipo } from '../../lib/pontos';
 import type { Cadastro                 } from '../../lib/cadastros';
 
@@ -15,7 +16,15 @@ const TIPO_LABEL: Record<PontoTipo, string> = {
   , saida          : 'Saída'
 };
 
-const ROLES = ['Segurança', 'Bombeiro Civil', 'Admin'];
+// O valor gravado no banco precisa bater com o que o gatilho/RLS e o painel
+// web esperam (minúsculo, snake_case) — só o rótulo exibido é em português.
+const ROLE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'seguranca', label: 'Segurança' },
+  { value: 'bombeiro_civil', label: 'Bombeiro Civil' },
+  { value: 'admin', label: 'Admin' },
+];
+
+const ENDERECO_TITAS = 'Rua - Dr. Antônio Rodrigues Braga,118 - São Sebastião - Uberaba/MG';
 
 function toIsoDate(value: string): string | null {
   if (!value.trim()) return null;
@@ -24,7 +33,7 @@ function toIsoDate(value: string): string | null {
 }
 
 export default function AdminScreen() {
-  const [tab, setTab] = useState<'relatorios' | 'segurancas'>('relatorios');
+  const [tab, setTab] = useState<'relatorios' | 'segurancas' | 'planilhas'>('relatorios');
 
   return (
     <View className="flex-1 bg-slate-50">
@@ -45,9 +54,19 @@ export default function AdminScreen() {
             Seguranças
           </Text>
         </Pressable>
+        <Pressable
+          onPress={() => setTab('planilhas')}
+          className={`rounded-full px-4 py-2 ${tab === 'planilhas' ? 'bg-blue-600' : 'bg-slate-100'}`}
+        >
+          <Text className={tab === 'planilhas' ? 'text-white font-medium' : 'text-slate-700'}>
+            Planilhas
+          </Text>
+        </Pressable>
       </View>
 
-      {tab === 'relatorios' ? <RelatoriosTab /> : <SegurancasTab />}
+      {tab === 'relatorios' && <RelatoriosTab />}
+      {tab === 'segurancas' && <SegurancasTab />}
+      {tab === 'planilhas' && <PlanilhasTab />}
     </View>
   );
 }
@@ -230,8 +249,8 @@ function SegurancasTab() {
     <ScrollView contentContainerClassName="p-4 gap-3">
       <View className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
         <Text className="text-xs text-amber-800">
-          Criar novo usuário ainda precisa ser feito pelo painel web (exige credencial
-          administrativa do Supabase que não pode ficar no app mobile).
+          Novos usuários se cadastram sozinhos pela tela de "Criar conta" no login. Depois de
+          cadastrado, ajuste a função (role) e o status aqui, se necessário.
         </Text>
       </View>
 
@@ -262,19 +281,19 @@ function SegurancasTab() {
             </View>
 
             <View className="flex-row flex-wrap gap-2">
-              {ROLES.map((role) => {
-                const selected = item.role === role;
+              {ROLE_OPTIONS.map((option) => {
+                const selected = item.role === option.value;
                 return (
                   <Pressable
-                    key={role}
-                    onPress={() => changeRole(item, role)}
+                    key={option.value}
+                    onPress={() => changeRole(item, option.value)}
                     disabled={savingId === item.id}
                     className={`rounded-full border px-3 py-1 ${
                       selected ? 'border-blue-600 bg-blue-600' : 'border-slate-300 bg-white'
                     }`}
                   >
                     <Text className={`text-xs ${selected ? 'text-white' : 'text-slate-700'}`}>
-                      {role}
+                      {option.label}
                     </Text>
                   </Pressable>
                 );
@@ -282,6 +301,154 @@ function SegurancasTab() {
             </View>
           </View>
         ))}
+    </ScrollView>
+  );
+}
+
+function PlanilhasTab() {
+  const [cnpj, setCnpj] = useState('');
+  const [contratante, setContratante] = useState('');
+  const [contratada, setContratada] = useState('TITÃS PRESTADORA DE SERVIÇOS LTDA');
+  const [mesAno, setMesAno] = useState('');
+  const [enderecoContratante, setEnderecoContratante] = useState('');
+  const [nomeColaborador, setNomeColaborador] = useState('');
+  const [funcao, setFuncao] = useState<Funcao>('seguranca');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const funcaoOptions: { value: Funcao; label: string }[] = [
+    { value: 'seguranca', label: 'Segurança' },
+    { value: 'bombeiro_civil', label: 'Bombeiro Civil' },
+  ];
+
+  const gerar = async () => {
+    setError('');
+
+    if (
+      !cnpj.trim() ||
+      !contratante.trim() ||
+      !contratada.trim() ||
+      !enderecoContratante.trim() ||
+      !nomeColaborador.trim()
+    ) {
+      setError('Preencha todos os campos antes de gerar a planilha.');
+      return;
+    }
+    if (!isMesAnoValido(mesAno)) {
+      setError('Informe o Mês/Ano no formato AAAA-MM (ex.: 2026-03).');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await gerarPlanilhaPonto({
+        cnpj,
+        contratante,
+        contratada,
+        mesAno,
+        enderecoTitas: ENDERECO_TITAS,
+        enderecoContratante,
+        nomeColaborador,
+        funcao,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao gerar planilha.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <ScrollView contentContainerClassName="p-4 gap-4">
+      <View className="rounded-xl border border-slate-200 bg-white p-4 gap-3">
+        <Text className="text-lg font-semibold text-slate-900">Criar Planilha</Text>
+        <Text className="text-xs text-slate-500">
+          Gera a Folha de Ponto Individual (.xlsx) para um colaborador, no mesmo layout usado no
+          painel web. Gerado 100% no aparelho, para preenchimento manual de entrada/intervalo/saída.
+        </Text>
+
+        <TextInput
+          value={cnpj}
+          onChangeText={setCnpj}
+          placeholder="CNPJ (ex.: 00.000.000/0000-00)"
+          placeholderTextColor="#94a3b8"
+          className="rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+        />
+        <TextInput
+          value={contratante}
+          onChangeText={setContratante}
+          placeholder="Contratante"
+          placeholderTextColor="#94a3b8"
+          className="rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+        />
+        <TextInput
+          value={contratada}
+          onChangeText={setContratada}
+          placeholder="Contratada"
+          placeholderTextColor="#94a3b8"
+          className="rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+        />
+        <TextInput
+          value={mesAno}
+          onChangeText={setMesAno}
+          placeholder="Mês/Ano (AAAA-MM, ex.: 2026-03)"
+          placeholderTextColor="#94a3b8"
+          className="rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+        />
+        <TextInput
+          value={ENDERECO_TITAS}
+          editable={false}
+          className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-slate-500"
+        />
+        <TextInput
+          value={enderecoContratante}
+          onChangeText={setEnderecoContratante}
+          placeholder="Endereço da contratante"
+          placeholderTextColor="#94a3b8"
+          className="rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+        />
+        <TextInput
+          value={nomeColaborador}
+          onChangeText={setNomeColaborador}
+          placeholder="Nome do colaborador"
+          placeholderTextColor="#94a3b8"
+          className="rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+        />
+
+        <View className="flex-row gap-2">
+          {funcaoOptions.map((option) => {
+            const selected = funcao === option.value;
+            return (
+              <Pressable
+                key={option.value}
+                onPress={() => setFuncao(option.value)}
+                className={`flex-1 items-center rounded-lg border px-3 py-2 ${
+                  selected ? 'border-blue-600 bg-blue-600' : 'border-slate-300 bg-white'
+                }`}
+              >
+                <Text className={selected ? 'font-medium text-white' : 'text-slate-700'}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {!!error && <Text className="text-sm text-red-600">{error}</Text>}
+
+        <Pressable
+          onPress={gerar}
+          disabled={loading}
+          className={`flex-row items-center justify-center rounded-lg py-3 ${
+            loading ? 'bg-blue-300' : 'bg-blue-600'
+          }`}
+        >
+          <FileSpreadsheet size={16} color="#fff" />
+          <Text className="ml-2 font-medium text-white">
+            {loading ? 'Gerando...' : 'Gerar planilha (.xlsx)'}
+          </Text>
+        </Pressable>
+      </View>
     </ScrollView>
   );
 }
